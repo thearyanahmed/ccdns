@@ -80,11 +80,38 @@ impl Default for MessageHeader {
             ra: false,
             z: 0,
             rcode: 0,
-            qdcount: 0,
+            qdcount: 1,
             ancount: 0,
             nscount: 0,
             arcount: 0,
         }
+    }
+}
+
+#[derive(Debug)]
+struct QuestionSection {
+    name: String,  // Domain name
+    qtype: u16,    // Query Type (e.g. 1 for A record)
+    qclass: u16,   // Query Class (e.g. 1 for IN class)
+}
+
+impl QuestionSection {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+
+        // Encode domain name as labels: \x0ccodecrafters\x02io\x00
+        let labels: Vec<&str> = self.name.split('.').collect();
+        for label in labels {
+            bytes.push(label.len() as u8);   // First byte is the length of the label
+            bytes.extend_from_slice(label.as_bytes()); // Then the label itself
+        }
+        bytes.push(0x00);  // Null byte to terminate the name
+
+        // Add qtype and qclass (both 2-byte values)
+        bytes.extend_from_slice(&self.qtype.to_be_bytes());  // qtype in big-endian
+        bytes.extend_from_slice(&self.qclass.to_be_bytes()); // qclass in big-endian
+
+        bytes
     }
 }
 
@@ -128,13 +155,17 @@ fn main() {
     // Uncomment this block to pass the first stage
     let udp_socket = UdpSocket::bind("127.0.0.1:2053").expect("Failed to bind to address");
     let mut buf = [0; 512];
-    
+    let question = QuestionSection {
+        name: "codecrafters.io".to_string(),
+        qtype: 1,  // A record
+        qclass: 1, // IN class
+    };
     loop {
         match udp_socket.recv_from(&mut buf) {
             Ok((size, source)) => {
                 println!("Received {} bytes from {}", size, source);
-                let response = header.to_bytes();
-
+                let mut response = header.to_bytes();
+                response.extend_from_slice(&question.to_bytes());
                 println!("Sending response: {:?}", response);
                 udp_socket
                     .send_to(&response, source)
